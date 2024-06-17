@@ -11,13 +11,39 @@ import torch.nn.functional as F
 import numpy as np
 import ocnn
 
+from scipy.stats import gaussian_kde
+from scipy.spatial.distance import jensenshannon
+
 from ocnn.octree import Octree
 from thsolver import Solver
 from datascts import get_ae_shapenet_dataset
 
+
 # The following line is to fix `RuntimeError: received 0 items of ancdata`.
 # Refer: https://github.com/pytorch/pytorch/issues/973
 torch.multiprocessing.set_sharing_strategy('file_system')
+
+def compute_density_loss(pred_points, gt_points, sample_points, device):
+    # Convert to numpy
+    pred_points_np = pred_points.cpu().numpy()
+    gt_points_np = gt_points.cpu().numpy()
+
+    # Compute KDE for predicted and ground truth points
+    pred_kde = gaussian_kde(pred_points_np.T)
+    gt_kde = gaussian_kde(gt_points_np.T)
+    
+    # Evaluate the densities at the sample points
+    pred_density = pred_kde(sample_points.T)
+    gt_density = gt_kde(sample_points.T)
+    
+    # Adding a small constant to avoid log(0)
+    epsilon = 1e-10
+    pred_density += epsilon
+    gt_density += epsilon
+    
+    # Compute the Jensen-Shannon Divergence as the loss
+    loss = jensenshannon(pred_density, gt_density)**2
+    return torch.tensor(loss, dtype=torch.float32, device=device)
 
 
 class AutoEncoderSolver(Solver):
@@ -31,8 +57,10 @@ class AutoEncoderSolver(Solver):
     return get_ae_shapenet_dataset(flags)
 
   def compute_loss(self, octree: ocnn.octree.Octree, model_out: dict):
-    # octree splitting loss
+    # Initialize output dictionary  
     output = dict()
+    
+    # octree splitting loss
     logits = model_out['logits']
     for d in logits.keys():
       logitd = logits[d]
@@ -40,10 +68,25 @@ class AutoEncoderSolver(Solver):
       output['loss_%d' % d] = F.cross_entropy(logitd, label_gt)
       output['accu_%d' % d] = logitd.argmax(1).eq(label_gt).float().mean()
 
-    # octree regression loss
+    # Octree regression loss
     signal = model_out['signal']
     signal_gt = octree.get_input_feature('ND', nempty=True)
     output['loss_reg'] = torch.mean(torch.sum((signal_gt - signal)**2, dim=1))
+
+    # Density-based loss
+    depth = octree.depth
+    x_pred, y_pred, z_pred, _ = model_out['octree_out'].xyzb(depth=6)
+    pred_points = torch.stack([x_pred, y_pred, z_pred], dim=1).float() / (2**(depth - 1)) - 1.0
+    
+    x_gt, y_gt, z_gt, _ = octree.xyzb(depth=6)
+    gt_points = torch.stack([x_gt, y_gt, z_gt], dim=1).float() / (2**(depth - 1)) - 1.0
+
+    # Create sample points
+    sample_points = np.vstack([np.linspace(-1, 1, 100)] * 3).T
+
+    density_loss = compute_density_loss(pred_points, gt_points, sample_points, octree.device)
+    output['loss_density'] = density_loss
+    print(f'Density Loss: {density_loss.item()}')
 
     # total loss
     losses = [val for key, val in output.items() if 'loss' in key]
