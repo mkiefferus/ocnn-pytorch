@@ -11,11 +11,11 @@ SOLVER:
   best_val: min:loss
   port: 10001         # the port used for multi-gpu training
 
-  logdir: logs/ae_shapenet/ae
-  max_epoch: 300
-  test_every_epoch: 20
+  logdir: logs/ae_shapenet/newer_college_10cm_005
+  max_epoch: 10
+  test_every_epoch: 1
   log_per_iter: 50
-  ckpt_num: 20
+  ckpt_num: 1
 
   # optimizer
   type: adamw
@@ -28,7 +28,7 @@ SOLVER:
 
 DATA:
   train:
-    name: shapenet
+    name: newer_college_10cm
     points_scale: 0.5
 
     # octree building
@@ -39,15 +39,15 @@ DATA:
     distort: False
 
     # data loading
-    location: data/ShapeNetV1/points.npz
-    filelist: data/ShapeNetV1/filelist/train.txt
+    location: data/newer_college_10cm/points.npz
+    filelist: data/newer_college_10cm/filelist/train.txt
     filetype: npz  # file type of the point clouds
     batch_size: 32
     shuffle: True
     # num_workers: 0
 
   test:
-    name: shapenet
+    name: newer_college_10cm
     points_scale: 0.5
 
     # octree building
@@ -58,8 +58,8 @@ DATA:
     distort: False
 
     # data loading
-    location: data/ShapeNetV1/points.npz
-    filelist: data/ShapeNetV1/filelist/test.txt
+    location: data/newer_college_10cm/points.npz
+    filelist: data/newer_college_10cm/filelist/test.txt
     filetype: npz  # file type of the point clouds
     batch_size: 16
     shuffle: False
